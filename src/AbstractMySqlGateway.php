@@ -3,6 +3,7 @@
 namespace ObjectivePHP\Gateway\MySql;
 
 use Aura\SqlQuery\AbstractQuery;
+use Aura\SqlQuery\Mysql\Delete;
 use Aura\SqlQuery\Common\SelectInterface;
 use Aura\SqlQuery\Mysql\Insert;
 use Aura\SqlQuery\Mysql\Select;
@@ -248,7 +249,6 @@ abstract class AbstractMySqlGateway extends AbstractPaginableGateway
             }
         }
 
-
         return $result;
     }
 
@@ -257,9 +257,39 @@ abstract class AbstractMySqlGateway extends AbstractPaginableGateway
         throw new MySqlGatewayException(sprintf('Method ' . __METHOD__ . ' is not implemented on this gateway'));
     }
 
+    /**
+     * {@inheritdoc}
+     */
     public function delete(EntityInterface ...$entities)
     {
-        throw new MySqlGatewayException(sprintf('Method ' . __METHOD__ . ' is not implemented on this gateway'));
+        $result = true;
+
+        $links = $this->getLinks(self::PERSIST);
+
+        if (!$links) throw new MySqlGatewayException('No link found to delete entity');
+        foreach ($links as $link) {
+            $link->begin_transaction();
+
+            foreach ($entities as $entity) {
+                $collection = $entity->getEntityCollection() != EntityInterface::DEFAULT_ENTITY_COLLECTION
+                    ? $entity->getEntityCollection()
+                    : $this->getDefaultEntityCollection();
+
+                $query = (new Delete(new Quoter("`", "`")))->from($collection);
+
+                $query->where($entity->getEntityIdentifier() . ' = ' . $entity[$entity->getEntityIdentifier()]);
+
+                try {
+                    $this->query($query, $link);
+                } catch (\Exception $e) {
+                    $link->rollback();
+                }
+            }
+
+            $result = $link->commit();
+        }
+
+        return $result;
     }
 
     public function purge(ResultSetDescriptorInterface $descriptor)
